@@ -92,6 +92,14 @@ type ConnectPacket struct {
 	DestinationHostname string
 }
 
+func BuildConnectPacket(streamType StreamType, destinationPort uint16, destinationHostname string) *ConnectPacket {
+	return &ConnectPacket{
+		StreamType:          streamType,
+		DestinationPort:     destinationPort,
+		DestinationHostname: destinationHostname,
+	}
+}
+
 func (cp *ConnectPacket) Marshal() []byte {
 	b := make([]byte, 3+len(cp.DestinationHostname))
 	b[0] = byte(cp.StreamType)
@@ -100,23 +108,55 @@ func (cp *ConnectPacket) Marshal() []byte {
 	return b
 }
 
+func (cp *ConnectPacket) ToPacket(streamID uint32) *Packet {
+	return &Packet{
+		Type:     PacketTypeConnect,
+		StreamID: streamID,
+		Payload:  cp.Marshal(),
+	}
+}
+
 type DataPacket struct {
 	// Data sent to destination server
 	Data []byte
+}
+
+func BuildDataPacket(data []byte) *DataPacket {
+	return &DataPacket{Data: data}
 }
 
 func (dp *DataPacket) Marshal() []byte {
 	return dp.Data
 }
 
+func (dp *DataPacket) ToPacket(streamID uint32) *Packet {
+	return &Packet{
+		Type:     PacketTypeData,
+		StreamID: streamID,
+		Payload:  dp.Marshal(),
+	}
+}
+
 type ContinuePacket struct {
 	BufferRemaining uint32
+}
+
+func BuildContinuePacket(bufferRemaining uint32) *ContinuePacket {
+	return &ContinuePacket{BufferRemaining: bufferRemaining}
 }
 
 func (cp *ContinuePacket) Marshal() []byte {
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint32(b, cp.BufferRemaining)
 	return b
+}
+
+func (cp *ContinuePacket) ToPacket(streamID uint32) *Packet {
+	return &Packet{
+		Type:     PacketTypeContinue,
+		StreamID: streamID,
+		Payload:  cp.Marshal(),
+	}
 }
 
 type CloseReason uint8
@@ -165,8 +205,20 @@ type ClosePacket struct {
 	Reason CloseReason
 }
 
+func BuildClosePacket(reason CloseReason) *ClosePacket {
+	return &ClosePacket{Reason: reason}
+}
+
 func (cp *ClosePacket) Marshal() []byte {
 	b := make([]byte, 1)
 	b[0] = byte(cp.Reason)
 	return b
+}
+
+func (cp *ClosePacket) ToPacket(streamID uint32) *Packet {
+	return &Packet{
+		Type:     PacketTypeClose,
+		StreamID: streamID,
+		Payload:  cp.Marshal(),
+	}
 }
