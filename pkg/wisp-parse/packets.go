@@ -1,5 +1,10 @@
 package wispparse
 
+import (
+	"encoding/binary"
+	"fmt"
+)
+
 // Implementing https://github.com/MercuryWorkshop/wisp-protocol/blob/main/protocol.md
 
 type PacketType uint8
@@ -13,11 +18,62 @@ const (
 
 type Packet struct {
 	// The type of packet
-	Type PacketType `json:"type"`
+	Type PacketType
 	// The stream ID
-	StreamID uint32 `json:"stream_id"`
+	StreamID uint32
 	// The payload of the packet
-	Payload []byte `json:"payload"`
+	Payload []byte
+}
+
+func ParsePacket(b []byte) (*Packet, error) {
+	if len(b) < 5 {
+		return nil, fmt.Errorf("packet is too short")
+	}
+	return &Packet{
+		Type:     PacketType(b[0]),
+		StreamID: binary.LittleEndian.Uint32(b[1:5]),
+		Payload:  b[5:],
+	}, nil
+}
+
+func (p *Packet) ConnectPacket() (*ConnectPacket, error) {
+	if p.Type != PacketTypeConnect {
+		return nil, fmt.Errorf("packet is not a connect packet")
+	}
+	var cp ConnectPacket
+	cp.StreamType = StreamType(p.Payload[0])
+	cp.DestinationPort = binary.LittleEndian.Uint16(p.Payload[1:3])
+	cp.DestinationHostname = string(p.Payload[3:])
+	return &cp, nil
+}
+
+func (p *Packet) DataPacket() (*DataPacket, error) {
+	if p.Type != PacketTypeData {
+		return nil, fmt.Errorf("packet is not a data packet")
+	}
+	return &DataPacket{Data: p.Payload}, nil
+}
+
+func (p *Packet) ContinuePacket() (*ContinuePacket, error) {
+	if p.Type != PacketTypeContinue {
+		return nil, fmt.Errorf("packet is not a continue packet")
+	}
+	return &ContinuePacket{BufferRemaining: binary.LittleEndian.Uint32(p.Payload)}, nil
+}
+
+func (p *Packet) ClosePacket() (*ClosePacket, error) {
+	if p.Type != PacketTypeClose {
+		return nil, fmt.Errorf("packet is not a close packet")
+	}
+	return &ClosePacket{Reason: CloseReason(p.Payload[0])}, nil
+}
+
+func (p *Packet) Marshal() []byte {
+	b := make([]byte, 5+len(p.Payload))
+	b[0] = byte(p.Type)
+	binary.LittleEndian.PutUint32(b[1:5], p.StreamID)
+	copy(b[5:], p.Payload)
+	return b
 }
 
 type StreamType uint8
@@ -29,20 +85,38 @@ const (
 
 type ConnectPacket struct {
 	// Whether the connection is TCP or UDP
-	StreamType StreamType `json:"stream_type"`
+	StreamType StreamType
 	// The destination port: u16
-	DestinationPort uint16 `json:"destination_port"`
+	DestinationPort uint16
 	// The destination hostname: string
-	DestinationHostname string `json:"destination_hostname"`
+	DestinationHostname string
+}
+
+func (cp *ConnectPacket) Marshal() []byte {
+	b := make([]byte, 3+len(cp.DestinationHostname))
+	b[0] = byte(cp.StreamType)
+	binary.LittleEndian.PutUint16(b[1:3], cp.DestinationPort)
+	copy(b[3:], cp.DestinationHostname)
+	return b
 }
 
 type DataPacket struct {
 	// Data sent to destination server
-	Data []byte `json:"data"`
+	Data []byte
+}
+
+func (dp *DataPacket) Marshal() []byte {
+	return dp.Data
 }
 
 type ContinuePacket struct {
-	BufferRemaining uint32 `json:"buffer_remaining"`
+	BufferRemaining uint32
+}
+
+func (cp *ContinuePacket) Marshal() []byte {
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, cp.BufferRemaining)
+	return b
 }
 
 type CloseReason uint8
@@ -88,5 +162,11 @@ const (
 
 type ClosePacket struct {
 	// The reason for closing the connection
-	Reason CloseReason `json:"reason"`
+	Reason CloseReason
+}
+
+func (cp *ClosePacket) Marshal() []byte {
+	b := make([]byte, 1)
+	b[0] = byte(cp.Reason)
+	return b
 }
